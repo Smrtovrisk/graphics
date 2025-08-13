@@ -1,0 +1,4 @@
+- [x] Project scaffolded: React.js app created with Yarn
+- [x] P5.js installed via Yarn
+- [x] GLSL shader support added with glsl-canvas-js
+- [ ] README.md and documentation to be updated
