@@ -1,53 +1,109 @@
 #version 300 es
 precision highp float;
-out vec4 O;
-uniform float time;
 uniform vec2 resolution;
+uniform float time;
 uniform vec2 move;
-#define FC gl_FragCoord.xy
-#define R resolution
-#define T time
-#define N normalize
-#define S smoothstep
-#define MN min(R.x,R.y)
-#define rot(a) mat2(cos((a)-vec4(0,11,33,0)))
-#define hue(a) (.5+.5*sin(3.14*(a)+vec3(1,2,3)))
-float rnd(vec2 p) {
-	p=fract(p*vec2(12.9898,78.233));
-	p+=dot(p,p+34.56);
-	return fract(p.x*p.y);
+out vec4 fragColor;
+
+#define PI 3.14159265359
+#define MAX_STEPS 80
+#define MAX_DIST 50.0
+#define SURF_DIST 0.002
+
+mat2 rot(float a) { float c=cos(a),s=sin(a); return mat2(c,-s,s,c); }
+
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 }
-void cam(inout vec3 p) {
-	p.yz*=rot(.5-move.y*6.3/MN);
-	p.xz*=rot(-move.x*6.3/MN+T*.1);
+
+float sdOctahedron(vec3 p, float s) {
+    p = abs(p);
+    return (p.x+p.y+p.z-s)*0.57735027;
 }
+
+float sdCross(vec3 p, float s) {
+    float da = sdBox(p.xyz, vec3(s*3.0, s, s));
+    float db = sdBox(p.yzx, vec3(s, s*3.0, s));
+    float dc = sdBox(p.zxy, vec3(s, s, s*3.0));
+    return min(da, min(db, dc));
+}
+
+float scene(vec3 p) {
+    float tunnelLen = 4.0;
+    float id = floor(p.z / tunnelLen);
+    p.z = mod(p.z, tunnelLen) - tunnelLen * 0.5;
+    p.xy *= rot(id * 0.4 + time * 0.15);
+    float morph = sin(time * 0.5 + id * 0.7) * 0.5 + 0.5;
+    float oct = sdOctahedron(p, 1.0 + sin(time + id) * 0.2);
+    float cross = sdCross(p, 0.25);
+    float crystal = mix(oct, cross, morph);
+    float walls = -sdBox(p, vec3(2.8, 2.8, tunnelLen * 0.5));
+    return max(crystal, walls);
+}
+
+vec3 getNormal(vec3 p) {
+    vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        scene(p + e.xyy) - scene(p - e.xyy),
+        scene(p + e.yxy) - scene(p - e.yxy),
+        scene(p + e.yyx) - scene(p - e.yyx)
+    ));
+}
+
+float rayMarch(vec3 ro, vec3 rd) {
+    float d = 0.0;
+    for(int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * d;
+        float ds = scene(p);
+        d += ds;
+        if(d > MAX_DIST || abs(ds) < SURF_DIST) break;
+    }
+    return d;
+}
+
+vec3 palette(float t) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.0, 0.33, 0.67);
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
 void main() {
-	// Preserve aspect ratio: fill screen, center fractal, letterbox if needed
-	float aspect = R.x / R.y;
-	vec2 uv = (FC - 0.5 * R) / min(R.x, R.y);
-	vec2 st = uv;
-	st*=3.;
-	st+=sin(st*vec2(10,30))*.01;
-	vec3 col=vec3(0),p;
-	float g,e,s,
-	k=mix(.0,1.,rnd(uv+T)),
-	t=exp(pow((cos(min(T,1.5707963))*.5+.5),13.)),
-	u=S(7.,.0,min(1.,dot(uv,uv)));
-	for (float i=.0; i<40.; i++) {
-		p=vec3(st,g-6.)*mix(t*.997*u,1.,fract(k*34.56));
-		cam(p);
-		s=6.;    
-		for(int j; j<11; j++) {
-			e=15.96/dot(p,p);
-			s*=e;
-			vec3 q=abs(p)*e-vec3(3,4,3);
-			p=vec3(0,4.025,-1)-abs(q);
-		}
-		g+=p.y*p.y/s*.78;
-		col+=(log2(s)-g*.8)/3e2*hue(t+T*.5+e*e*e);
-	}
-	float scanline = sin(T-uv.y*800.)*.01;
-	col = max(col * 1.2, .02);
-	col += scanline;
-	O = vec4(col, 1);
+    vec2 uv = (gl_FragCoord.xy - 0.5 * resolution) / min(resolution.x, resolution.y);
+    float camSpeed = time * 2.5;
+    vec3 ro = vec3(0.0, 0.0, camSpeed);
+    vec2 mouse = move / max(resolution, vec2(1.0)) * 2.0;
+    vec3 rd = normalize(vec3(uv, 1.0));
+    rd.yz *= rot(-mouse.y * 0.4);
+    rd.xz *= rot(-mouse.x * 0.4);
+    ro.x += sin(time * 0.7) * 0.4;
+    ro.y += cos(time * 0.5) * 0.3;
+    float d = rayMarch(ro, rd);
+    vec3 col = vec3(0.0);
+    if(d < MAX_DIST) {
+        vec3 p = ro + rd * d;
+        vec3 n = getNormal(p);
+        float depth = mod(p.z, 4.0) / 4.0;
+        vec3 baseCol = palette(depth + time * 0.1);
+        float fresnel = pow(1.0 - abs(dot(n, rd)), 3.0);
+        vec3 lightDir = normalize(vec3(sin(time), cos(time * 0.7), -1.0));
+        float diff = max(dot(n, lightDir), 0.0);
+        vec3 ref = reflect(rd, n);
+        float spec = pow(max(dot(ref, lightDir), 0.0), 32.0);
+        col = baseCol * (diff * 0.6 + 0.4);
+        col += vec3(1.0, 0.9, 1.0) * spec * 0.6;
+        col += baseCol / (1.0 + d * d * 0.3) * fresnel * 2.0;
+        col += baseCol * fresnel * 1.2;
+    }
+    vec3 bg = vec3(0.02, 0.01, 0.06);
+    bg += palette(uv.y * 0.5 + time * 0.05) * 0.04;
+    col = mix(bg, col, exp(-d * 0.04));
+    col = mix(col, bg, 1.0 - exp(-d * 0.015));
+    float vig = 1.0 - length(uv) * 0.4;
+    col *= vig;
+    col = pow(col, vec3(0.85));
+    col *= 0.96 + 0.04 * sin(gl_FragCoord.y * 2.5);
+    fragColor = vec4(col, 1.0);
 }

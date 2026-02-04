@@ -1,6 +1,19 @@
-# graphics
+# Crystal Tunnel Shader
 
-This project is a React.js application bootstrapped with Create React App and uses Yarn as the package manager. The P5.js framework is installed for creative coding and graphics. GLSL shader support is enabled using glsl-canvas-js.
+An interactive WebGL shader graphics demo featuring a mesmerizing infinite neon crystal tunnel effect.
+
+## Features
+
+- **Raymarching Engine** - Real-time 3D rendering using signed distance functions (SDFs)
+- **Morphing Crystals** - Octahedrons and 3D crosses that smoothly morph over time
+- **Interactive Camera** - Drag with mouse to look around the tunnel
+- **Dynamic Lighting** - Fresnel effects, specular highlights, and neon glow
+- **Infinite Tunnel** - Procedural repetition creates endless depth
+- **Visual Effects** - Vignette, fog, scanlines, and color palette cycling
+
+## Live Demo
+
+Visit: https://smrtovrisk.github.io/graphics
 
 ## Getting Started
 
@@ -19,20 +32,28 @@ yarn start
 yarn build
 ```
 
-### Run tests
+### Deploy to GitHub Pages
 ```
-yarn test
-```
-
-## Using P5.js
-You can import and use P5.js in your React components like this:
-
-```js
-import p5 from 'p5';
-// ...your code
+yarn deploy
 ```
 
-## Using GLSL Shaders
-GLSL shaders can be rendered using the `glsl-canvas-js` package. See `src/App.js` for a basic example of rendering a fragment shader in a canvas element.
+## Technical Details
 
-For more details, see the [P5.js documentation](https://p5js.org/reference/) and [glsl-canvas-js documentation](https://github.com/patriciogonzalezvivo/glslCanvas).
+- **Framework**: React.js + p5.js for WebGL context
+- **Shaders**: GLSL ES 3.0 fragment shaders
+- **Rendering**: Sphere-traced raymarching at 80 steps max
+- **SDF Primitives**: Box, Octahedron, Cross (combined via CSG)
+
+## Controls
+
+- **Drag Mouse**: Rotate camera view
+- Automatic camera movement through tunnel with gentle sway
+
+## Shader Techniques Used
+
+- Signed Distance Functions (SDFs)
+- Raymarching / Sphere Tracing
+- Fresnel reflection approximation
+- Cosine color palettes
+- Domain repetition for infinite geometry
+- Soft shadows and ambient occlusion hints

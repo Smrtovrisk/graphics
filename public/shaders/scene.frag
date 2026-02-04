@@ -1,62 +1,107 @@
-// Adapted from Matthias Hurrle (@atzedent) for glsl-canvas-js (WebGL1)
+// Crystal Tunnel Shader - Adapted for glsl-canvas-js (WebGL1)
 
 precision highp float;
 
-#define R u_resolution
-#define T u_time
-#define MN min(R.x,R.y)
-#define S smoothstep
+#define PI 3.14159265359
+#define MAX_STEPS 60
+#define MAX_DIST 50.0
+#define SURF_DIST 0.003
 
-mat2 rot(float a) {
-    float s = sin(a), c = cos(a);
-    return mat2(c, -s, s, c);
+mat2 rot(float a) { float c=cos(a),s=sin(a); return mat2(c,-s,s,c); }
+
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
 }
 
-vec3 hue(float a) {
-    return 0.5 + 0.5 * sin(3.14159 * a + vec3(1,2,3));
+float sdOctahedron(vec3 p, float s) {
+    p = abs(p);
+    return (p.x+p.y+p.z-s)*0.57735027;
 }
 
-float rnd(vec2 p) {
-    p = fract(p * vec2(12.9898,78.233));
-    p += dot(p, p + 34.56);
-    return fract(p.x * p.y);
+float sdCross(vec3 p, float s) {
+    float da = sdBox(p.xyz, vec3(s*3.0, s, s));
+    float db = sdBox(p.yzx, vec3(s, s*3.0, s));
+    float dc = sdBox(p.zxy, vec3(s, s, s*3.0));
+    return min(da, min(db, dc));
 }
 
-void cam(inout vec3 p, vec2 move) {
-    p.yz *= rot(.5 - move.y * 6.3 / MN);
-    p.xz *= rot(-move.x * 6.3 / MN + T * .1);
+float scene(vec3 p, float time) {
+    float tunnelLen = 4.0;
+    float id = floor(p.z / tunnelLen);
+    p.z = mod(p.z, tunnelLen) - tunnelLen * 0.5;
+    p.xy *= rot(id * 0.4 + time * 0.15);
+    float morph = sin(time * 0.5 + id * 0.7) * 0.5 + 0.5;
+    float oct = sdOctahedron(p, 1.0 + sin(time + id) * 0.2);
+    float cross = sdCross(p, 0.25);
+    float crystal = mix(oct, cross, morph);
+    float walls = -sdBox(p, vec3(2.8, 2.8, tunnelLen * 0.5));
+    return max(crystal, walls);
+}
+
+vec3 getNormal(vec3 p, float time) {
+    vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        scene(p + e.xyy, time) - scene(p - e.xyy, time),
+        scene(p + e.yxy, time) - scene(p - e.yxy, time),
+        scene(p + e.yyx, time) - scene(p - e.yyx, time)
+    ));
+}
+
+float rayMarch(vec3 ro, vec3 rd, float time) {
+    float d = 0.0;
+    for(int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * d;
+        float ds = scene(p, time);
+        d += ds;
+        if(d > MAX_DIST || abs(ds) < SURF_DIST) break;
+    }
+    return d;
+}
+
+vec3 palette(float t) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.0, 0.33, 0.67);
+    return a + b * cos(6.28318 * (c * t + d));
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = (fragCoord - 0.5 * R) / MN, st = uv;
-    st *= 3.0;
-    st.y += 1.0;
-    st += sin(st * vec2(10.0, 30.0)) * 0.01;
-    vec3 col = vec3(0.0), p;
-    float g = 0.0, e = 0.0, s = 0.0;
-    float k = mix(0.0, 1.0, rnd(uv + T));
-    float t = exp(pow((cos(min(T, 1.5707963)) * 0.5 + 0.5), 13.0));
-    float u = S(7.0, 0.0, min(1.0, dot(uv, uv)));
-    for (float i = 0.0; i < 40.0; i++) {
-        p = vec3(st, g - 6.0) * mix(t * 0.997 * u, 1.0, fract(k * 34.56));
-        cam(p, u_mouse / R);
-        s = 6.0;
-        for (int j = 0; j < 11; j++) {
-            e = 15.96 / max(dot(p, p), 1e-4);
-            s *= e;
-            vec3 q = abs(p) * e - vec3(3.0, 4.0, 3.0);
-            p = vec3(0.0, 4.025, -1.0) - abs(q);
-        }
-        g += p.y * p.y / max(s, 1e-4) * 0.78;
-        col += (log2(max(s, 1e-6)) - g * 0.8) / 300.0 * hue(t + T * 0.5 + e * e * e);
+    vec2 uv = (fragCoord - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+    float time = u_time;
+    float camSpeed = time * 2.5;
+    vec3 ro = vec3(0.0, 0.0, camSpeed);
+    vec2 mouse = u_mouse / max(u_resolution, vec2(1.0)) * 2.0;
+    vec3 rd = normalize(vec3(uv, 1.0));
+    rd.yz *= rot(-mouse.y * 0.4);
+    rd.xz *= rot(-mouse.x * 0.4);
+    ro.x += sin(time * 0.7) * 0.4;
+    ro.y += cos(time * 0.5) * 0.3;
+    float d = rayMarch(ro, rd, time);
+    vec3 col = vec3(0.0);
+    if(d < MAX_DIST) {
+        vec3 p = ro + rd * d;
+        vec3 n = getNormal(p, time);
+        float depth = mod(p.z, 4.0) / 4.0;
+        vec3 baseCol = palette(depth + time * 0.1);
+        float fresnel = pow(1.0 - abs(dot(n, rd)), 3.0);
+        vec3 lightDir = normalize(vec3(sin(time), cos(time * 0.7), -1.0));
+        float diff = max(dot(n, lightDir), 0.0);
+        vec3 ref = reflect(rd, n);
+        float spec = pow(max(dot(ref, lightDir), 0.0), 32.0);
+        col = baseCol * (diff * 0.6 + 0.4);
+        col += vec3(1.0, 0.9, 1.0) * spec * 0.6;
+        col += baseCol / (1.0 + d * d * 0.3) * fresnel * 2.0;
+        col += baseCol * fresnel * 1.2;
     }
-    float scanline = sin(T - uv.y * 800.0) * 0.01;
-    uv = fragCoord / R * 2.0 - 1.0;
-    uv *= 0.95;
-    uv *= uv * uv * uv * uv;
-    float v = pow(dot(uv, uv), 0.8);
-    col = mix(col, vec3(0.0), v);
-    col = max(col * 1.2, 0.02);
-    col += scanline;
+    vec3 bg = vec3(0.02, 0.01, 0.06);
+    bg += palette(uv.y * 0.5 + time * 0.05) * 0.04;
+    col = mix(bg, col, exp(-d * 0.04));
+    col = mix(col, bg, 1.0 - exp(-d * 0.015));
+    float vig = 1.0 - length(uv) * 0.4;
+    col *= vig;
+    col = pow(col, vec3(0.85));
+    col *= 0.96 + 0.04 * sin(fragCoord.y * 2.5);
     fragColor = vec4(col, 1.0);
 }
